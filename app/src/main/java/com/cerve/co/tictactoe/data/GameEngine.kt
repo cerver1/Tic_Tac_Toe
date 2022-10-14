@@ -1,75 +1,73 @@
 package com.cerve.co.tictactoe.data
 
-
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.ui.graphics.Matrix
-import com.cerve.co.tictactoe.data.GameEngineState.Companion.ascendingDiagonalExampleHash
-import com.cerve.co.tictactoe.data.GameEngineState.Companion.descendingDiagonalExampleHash
-import com.cerve.co.tictactoe.data.model.Player
-import com.cerve.co.tictactoe.data.model.Player.Piece.EMPTY
-import com.cerve.co.tictactoe.data.model.Player.Piece.X
+import com.cerve.co.tictactoe.model.Player
+import com.cerve.co.tictactoe.model.Player.Piece.Circle
+import com.cerve.co.tictactoe.model.Player.Piece.EMPTY
+import com.cerve.co.tictactoe.model.Position
+import com.cerve.co.tictactoe.model.Square
+import com.cerve.co.tictactoe.systemutils.Logging.logIt
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
-fun main(args: Array<String>) {
-    ascendingDiagonalExampleHash.values.forEach(::println)
+fun main() {
 
-    println()
-    println(
-        GameEngineState(initialHashBoard = ascendingDiagonalExampleHash)
-            .updateGameStatus(
-                position = Position(0, 2),
-                piece = X
-            )
-    )
+    GameEngineState().apply {
+        squaresHash.values.forEach(::println)
+
+        placePiece(position = Position(0, 0), Player(Circle))
+        placePiece(position = Position(1, 1), Player(Circle))
+        placePiece(position = Position(2, 2), Player(Circle))
+
+        println("\n${status.value}\n")
+        squaresHash.values.forEach(::println)
+    }
+
 }
 
-class GameEngineState(
-    initialBoard: List<Square> = Grid3x3,
-    initialHashBoard: HashMap<Position, Square>
-) {
+class GameEngineState(initialHashBoard: HashMap<Position, Square> = Grid3x3Hash) {
 
-    private val _squares: MutableList<Square> = mutableStateListOf(*initialBoard.toTypedArray())
-    val squares: List<Square> = _squares
-
-    private val _squaresHash: MutableMap<Position, Square> = mutableStateMapOf<Position, Square>().apply { putAll(initialHashBoard) }
+    private val _squaresHash = mutableStateMapOf<Position, Square>().apply { putAll(initialHashBoard) }
     val squaresHash: Map<Position, Square> = _squaresHash
 
-    var status : GameStatus = GameStatus.OnGoing()
+    private val _status: MutableStateFlow<GameStatus> = MutableStateFlow(GameStatus.OnGoing)
+    val status: StateFlow<GameStatus> = _status.asStateFlow()
 
-    fun placePiece(position: Int, piece: Player.Piece) {
-        _squares[position] = _squares[position].copy(piece = piece)
+    fun placePiece(position: Position, player: Player) {
+        "new placement at $position".logIt("placePiece")
+        _squaresHash[position]?.let { square ->
+            _squaresHash[position] = square.copy(piece = player.piece)
+        } //TODO report error if position isn't found in table
+        _status.update { updateGameStatus(position, player = player) }
     }
 
-    fun updateGameStatus(position: Position, piece: Player.Piece) : Boolean {
-        //TODO vertical win condition
+    private fun updateGameStatus(position: Position, player: Player) : GameStatus {
 
-        val column = position.y
-        val row = position.x
-
-//       return _squares.filter {
-//           it.position.y == column
-//       }
-
-//        return row(row, piece = piece)
-//        return column(column, piece = piece)
-        return ascendingDiagonal(position, piece = piece)
-//        return _squares.all {
-//            it.position.x == row && it.piece == piece
-//        }
+        return when {
+            row(position.x, piece = player.piece) ||
+            column(position.y, piece = player.piece) ||
+            ascendingDiagonal(position, piece = player.piece) ||
+            descendingDiagonal(position, piece = player.piece) -> { GameStatus.Won(player) }
+            _squaresHash.none { it.value.piece == EMPTY } -> { GameStatus.Tied
+            }
+            else -> { GameStatus.OnGoing
+            }
+        }
 
     }
 
-    sealed class GameStatus(val player: Player? = null) {
+    sealed class GameStatus {
 
-        class OnGoing: GameStatus()
-        class Tied: GameStatus()
-        data class Won(val winner: Player) : GameStatus(winner)
+        object OnGoing : GameStatus()
+        object Tied : GameStatus()
+        data class Won(val winner: Player) : GameStatus()
 
     }
 
     private fun row(x: Int, piece: Player.Piece): Boolean {
-        var won: Boolean = false
+        var won = false
         var point = 0
 
         while (point < 3) {
@@ -117,7 +115,6 @@ class GameEngineState(
 
             val x = (3 - points -1)
 
-            println("\nx: $x, y: $points")
 
             won = _squaresHash[Position(x,points)]?.piece?.let {
                 it == piece
@@ -132,19 +129,6 @@ class GameEngineState(
 
         return won
     }
-
-    /*
-     * Description:
-     *  Prints the secondary diagonal of a square matrix
-     * Parameters:
-     *  mat - a pointer to the the matrix
-     *  rows - the number of rows
-     *  columns - the number of columns
-     * Returns:
-     *  Nothing
-     */
-
-
     private fun descendingDiagonal(position: Position, piece: Player.Piece): Boolean {
 
        if(position.x != position.y) return false
@@ -170,72 +154,23 @@ class GameEngineState(
     }
 
     companion object {
-        val Grid3x3 = List(9) {
-            Square(
-                piece = EMPTY,
-                position = Position(x = it / 3, y = it % 3)
-            )
+
+        inline fun <K, V> Map(size: Int, init: (index: Int) -> Pair<K , V>): HashMap<K, V> {
+            val map = hashMapOf<K, V>()
+            repeat(size) { index ->
+                init(index).also { (key, value) ->
+                    map[key] = value
+                }
+            }
+            return map
         }
 
-        val example = listOf(
-            Square(piece=EMPTY, position=Position(x=0, y=0)),
-            Square(piece=EMPTY, position=Position(x=0, y=1)),
-            Square(piece=EMPTY, position=Position(x=0, y=2)),
-            Square(piece=EMPTY, position=Position(x=1, y=0)),
-            Square(piece=EMPTY, position=Position(x=1, y=1)),
-            Square(piece=EMPTY, position=Position(x=1, y=2)),
-            Square(piece=X, position=Position(x=2, y=0)),
-            Square(piece=X, position=Position(x=2, y=1)),
-            Square(piece=X, position=Position(x=2, y=2))
-        )
+        val Grid3x3Hash = Map(9) {
+            val position = Position(x = it / 3, y = it % 3)
 
-        val rowAndColumnExampleHash = hashMapOf(
-            Position(x=0, y=0) to Square(piece=EMPTY, position=Position(x=0, y=0)),
-            Position(x=0, y=1) to Square(piece=EMPTY, position=Position(x=0, y=1)),
-            Position(x=0, y=2) to Square(piece=X, position=Position(x=0, y=2)),
-            Position(x=1, y=0) to Square(piece=EMPTY, position=Position(x=1, y=0)),
-            Position(x=1, y=1) to Square(piece=EMPTY, position=Position(x=1, y=1)),
-            Position(x=1, y=2) to Square(piece=X, position=Position(x=1, y=2)),
-            Position(x=2, y=0) to Square(piece=X, position=Position(x=2, y=0)),
-            Position(x=2, y=1) to Square(piece=X, position=Position(x=2, y=1)),
-            Position(x=2, y=2) to Square(piece=X, position=Position(x=2, y=2))
-        )
+            position to Square(position = position)
+        }
 
-        val descendingDiagonalExampleHash = hashMapOf(
-            Position(x=0, y=0) to Square(piece=X, position=Position(x=0, y=0)),
-            Position(x=0, y=1) to Square(piece=EMPTY, position=Position(x=0, y=1)),
-            Position(x=0, y=2) to Square(piece=EMPTY, position=Position(x=0, y=2)),
-            Position(x=1, y=0) to Square(piece=EMPTY, position=Position(x=1, y=0)),
-            Position(x=1, y=1) to Square(piece=X, position=Position(x=1, y=1)),
-            Position(x=1, y=2) to Square(piece=EMPTY, position=Position(x=1, y=2)),
-            Position(x=2, y=0) to Square(piece=EMPTY, position=Position(x=2, y=0)),
-            Position(x=2, y=1) to Square(piece=EMPTY, position=Position(x=2, y=1)),
-            Position(x=2, y=2) to Square(piece=X, position=Position(x=2, y=2))
-        )
-
-        val ascendingDiagonalExampleHash = hashMapOf(
-            Position(x=0, y=0) to Square(piece=EMPTY, position=Position(x=0, y=0)),
-            Position(x=0, y=1) to Square(piece=EMPTY, position=Position(x=0, y=1)),
-            Position(x=0, y=2) to Square(piece=X, position=Position(x=0, y=2)),
-            Position(x=1, y=0) to Square(piece=EMPTY, position=Position(x=1, y=0)),
-            Position(x=1, y=1) to Square(piece=X, position=Position(x=1, y=1)),
-            Position(x=1, y=2) to Square(piece=EMPTY, position=Position(x=1, y=2)),
-            Position(x=2, y=0) to Square(piece=X, position=Position(x=2, y=0)),
-            Position(x=2, y=1) to Square(piece=EMPTY, position=Position(x=2, y=1)),
-            Position(x=2, y=2) to Square(piece=EMPTY, position=Position(x=2, y=2))
-        )
     }
 
 }
-
-@Immutable
-data class Square(
-    val piece: Player.Piece,
-    val position: Position
-)
-
-@Immutable
-data class Position(
-    val x: Int,
-    val y: Int
-)
